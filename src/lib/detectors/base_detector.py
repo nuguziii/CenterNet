@@ -26,9 +26,7 @@ class BaseDetector(object):
     self.model = self.model.to(opt.device)
     self.model.eval()
 
-    self.mean = np.array(opt.mean, dtype=np.float32).reshape(1, 1, 3)
-    self.std = np.array(opt.std, dtype=np.float32).reshape(1, 1, 3)
-    self.max_per_image = 100
+    self.max_per_image = 32
     self.num_classes = opt.num_classes
     self.scales = opt.test_scales
     self.opt = opt
@@ -53,7 +51,6 @@ class BaseDetector(object):
     inp_image = cv2.warpAffine(
       resized_image, trans_input, (inp_width, inp_height),
       flags=cv2.INTER_LINEAR)
-    inp_image = ((inp_image / 255. - self.mean) / self.std).astype(np.float32)
 
     images = inp_image.transpose(2, 0, 1).reshape(1, 3, inp_height, inp_width)
     if self.opt.flip_test:
@@ -76,24 +73,19 @@ class BaseDetector(object):
   def debug(self, debugger, images, dets, output, scale=1):
     raise NotImplementedError
 
-  def show_results(self, debugger, image, results):
+  def show_results(self, debugger, original_image, images, results):
    raise NotImplementedError
 
-  def run(self, image_or_path_or_tensor, meta=None):
+  def run(self, dataset, img_id, meta=None):
     load_time, pre_time, net_time, dec_time, post_time = 0, 0, 0, 0, 0
     merge_time, tot_time = 0, 0
     debugger = Debugger(dataset=self.opt.dataset, ipynb=(self.opt.debug==3),
                         theme=self.opt.debugger_theme)
     start_time = time.time()
-    pre_processed = False
-    if isinstance(image_or_path_or_tensor, np.ndarray):
-      image = image_or_path_or_tensor
-    elif type(image_or_path_or_tensor) == type (''): 
-      image = cv2.imread(image_or_path_or_tensor)
-    else:
-      image = image_or_path_or_tensor['image'][0].numpy()
-      pre_processed_images = image_or_path_or_tensor
-      pre_processed = True
+
+    self.dataset = dataset
+    image, anns = self.dataset.pano.loadData(img_id)
+    original_image = cv2.imread(img_id)
     
     loaded_time = time.time()
     load_time += (loaded_time - start_time)
@@ -101,13 +93,9 @@ class BaseDetector(object):
     detections = []
     for scale in self.scales:
       scale_start_time = time.time()
-      if not pre_processed:
-        images, meta = self.pre_process(image, scale, meta)
-      else:
-        # import pdb; pdb.set_trace()
-        images = pre_processed_images['images'][scale][0]
-        meta = pre_processed_images['meta'][scale]
-        meta = {k: v.numpy()[0] for k, v in meta.items()}
+
+      images, meta = self.pre_process(image, scale, meta)
+
       images = images.to(self.opt.device)
       torch.cuda.synchronize()
       pre_process_time = time.time()
@@ -137,7 +125,7 @@ class BaseDetector(object):
     tot_time += end_time - start_time
 
     if self.opt.debug >= 1:
-      self.show_results(debugger, image, results)
+      self.show_results(debugger, original_image, images, results)
     
     return {'results': results, 'tot': tot_time, 'load': load_time,
             'pre': pre_time, 'net': net_time, 'dec': dec_time,
