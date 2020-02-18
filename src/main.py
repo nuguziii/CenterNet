@@ -10,16 +10,15 @@ import torch
 import torch.utils.data
 from opts import opts
 from models.model import create_model, load_model, save_model
-from models.data_parallel import DataParallel
 from logger import Logger
-from datasets.dataset_factory import get_dataset
-from trains.train_factory import train_factory
+from datasets.pano_dataset import get_dataset
+from trains.ctdet_pano import CtdetTrainer
 
 
 def main(opt):
   torch.manual_seed(opt.seed)
   torch.backends.cudnn.benchmark = not opt.not_cuda_benchmark and not opt.test
-  Dataset = get_dataset(opt.dataset, opt.task)
+  Dataset = get_dataset()
   opt = opts().update_dataset_info_and_set_heads(opt, Dataset)
   print(opt)
 
@@ -36,7 +35,7 @@ def main(opt):
     model, optimizer, start_epoch = load_model(
       model, opt.load_model, optimizer, opt.resume, opt.lr, opt.lr_step)
 
-  Trainer = train_factory[opt.task]
+  Trainer = CtdetTrainer
   trainer = Trainer(opt, model, optimizer)
   trainer.set_device(opt.gpus, opt.chunk_sizes, opt.device)
 
