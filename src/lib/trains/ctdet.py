@@ -130,3 +130,4 @@ class CtdetTrainer(BaseTrainer):
       batch['meta']['s'].cpu().numpy(),
       output['hm'].shape[2], output['hm'].shape[3], output['hm'].shape[1])
     results[batch['meta']['img_id'].cpu().numpy()[0]] = dets_out[0]
+
