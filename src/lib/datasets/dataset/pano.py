@@ -4,13 +4,16 @@ from __future__ import print_function
 
 import numpy as np
 import cv2
-import glob, os
+import glob
 
 
 class PANODataset:
     def __init__(self, path):
         super(PANODataset, self).__init__()
         self.data_dir = path
+        self.w_pad = 100
+        self.h_pad = 0
+        self.ratio = 2
 
     def getImgIds(self):
         file_list = glob.glob(self.data_dir + '/*.jpg')
@@ -25,19 +28,19 @@ class PANODataset:
         img, anns = self._resize(img, anns)
         img = self._normalize(img)
 
-        #self.showImage(original_img, anns)
+        #self.showImage(img, anns)
         return img, anns
 
-    def getOriginalCoord(self, original, image, ann):
+    def getOriginalCoord(self, original, ann):
         width = np.size(original, 1)
         height = np.size(original, 0)
 
-        if height * 2 < width:
+        if height * self.ratio < width:
             newH = height
-            newW = height * 2
-        elif height * 2 > width:
-            newH = int(width / 2)
-            newW = newH * 2
+            newW = height * self.ratio
+        elif height * self.ratio > width:
+            newH = int(width / self.ratio)
+            newW = newH * self.ratio
         else:
             newH = height
             newW = width
@@ -53,7 +56,7 @@ class PANODataset:
         fx = width / 512
         fy = height / 256
 
-        ann = (ann * np.array([fx, fy, fx, fy])).astype(int) + np.array([diffW, diffH, diffW, diffH])
+        ann = (ann * np.array([fx, fy, fx, fy])).astype(int) + np.array([diffW - self.w_pad, diffH + self.h_pad, diffW - self.w_pad, diffH + self.h_pad])
 
         return ann
 
@@ -82,12 +85,17 @@ class PANODataset:
         width = np.size(img, 1)
         height = np.size(img, 0)
 
-        if height*2<width:
+        img = img[self.h_pad:height-self.h_pad, self.w_pad:width-self.w_pad, :]
+
+        width = np.size(img, 1)
+        height = np.size(img, 0)
+
+        if height*self.ratio<width:
             newH = height
-            newW = height*2
-        elif height*2>width:
-            newH = int(width/2)
-            newW = newH*2
+            newW = height*self.ratio
+        elif height*self.ratio>width:
+            newH = int(width/self.ratio)
+            newW = newH*self.ratio
         else:
             newH = height
             newW = width
@@ -97,8 +105,8 @@ class PANODataset:
         img = img[diffH:diffH+newH,diffW:diffW+newW,:]
 
         for ann in anns:
-            ann["bbox"] = ann["bbox"] - np.array([diffW, diffH, diffW, diffH])
-            ann["center"] = ann["center"] - np.array([diffW, diffH])
+            ann["bbox"] = ann["bbox"] - np.array([diffW + self.w_pad, diffH + self.h_pad, diffW + self.w_pad, diffH + self.h_pad])
+            ann["center"] = ann["center"] - np.array([diffW + self.w_pad, diffH + self.h_pad])
 
         return img, anns
 

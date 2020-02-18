@@ -2,9 +2,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import cv2
 import numpy as np
-from progress.bar import Bar
 import time
 import torch
 
@@ -15,9 +13,7 @@ except:
         ' do \n cd $CenterNet_ROOT/src/lib/external \n make')
 from models.decode import ctdet_decode
 from models.utils import flip_tensor
-from utils.image import get_affine_transform
 from utils.post_process import ctdet_post_process
-from utils.debugger import Debugger
 
 from .base_detector import BaseDetector
 
@@ -87,11 +83,11 @@ class CtdetDetector(BaseDetector):
                                  detection[i, k, 4], 
                                  img_id='out_pred_{:.1f}'.format(scale))
 
-  def show_results(self, debugger, original_image, image, results):
+  def show_results(self, debugger, original_image, results):
     debugger.add_img(original_image, img_id='ctdet')
     for j in range(1, self.num_classes + 1):
       for bbox in results[j]:
         if bbox[4] > self.opt.vis_thresh:
-          bbox[:4] = self.dataset.pano.getOriginalCoord(original_image, image, bbox[:4])
+          bbox[:4] = self.dataset.pano.getOriginalCoord(original_image, bbox[:4])
           debugger.add_coco_bbox(bbox[:4], j - 1, bbox[4], img_id='ctdet')
     debugger.show_all_imgs(pause=self.pause)
