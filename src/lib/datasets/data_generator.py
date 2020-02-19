@@ -10,7 +10,10 @@ import math
 from utils.image import get_affine_transform, affine_transform
 from utils.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
 from utils.image import draw_dense_reg
-import datasets.pano as pano
+import datasets.dataset as pano
+
+def get_dataset():
+  return PANO
 
 class PANO(data.Dataset):
     num_classes = 2
@@ -169,6 +172,3 @@ class PANO(data.Dataset):
         #coco_eval.accumulate()
         #coco_eval.summarize()
         pass
-
-def get_dataset():
-  return PANO

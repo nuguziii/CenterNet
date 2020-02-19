@@ -11,8 +11,8 @@ import torch.utils.data
 from opts import opts
 from models.model import create_model, load_model, save_model
 from logger import Logger
-from datasets.pano_dataset import get_dataset
-from trains.ctdet_pano import CtdetTrainer
+from datasets.data_generator import get_dataset
+from trains.trainer import CtdetTrainer
 
 
 def main(opt):

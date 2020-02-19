@@ -16,8 +16,8 @@ from external.nms import soft_nms
 from opts import opts
 from logger import Logger
 from utils.utils import AverageMeter
-from datasets.pano_dataset import PANO
-from detectors.pano import CtdetDetector
+from datasets.data_generator import PANO
+from detectors.detector import CtdetDetector
 
 def test(opt):
   os.environ['CUDA_VISIBLE_DEVICES'] = opt.gpus_str
