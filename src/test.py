@@ -17,7 +17,7 @@ from opts import opts
 from logger import Logger
 from utils.utils import AverageMeter
 from datasets.pano_dataset import PANO
-from detectors.detector_factory import detector_factory
+from detectors.pano import CtdetDetector
 
 def test(opt):
   os.environ['CUDA_VISIBLE_DEVICES'] = opt.gpus_str
@@ -26,7 +26,7 @@ def test(opt):
   opt = opts().update_dataset_info_and_set_heads(opt, Dataset)
   print(opt)
   Logger(opt)
-  Detector = detector_factory[opt.task]
+  Detector = CtdetDetector
   
   split = 'val' if not opt.trainval else 'test'
   dataset = Dataset(opt, split)

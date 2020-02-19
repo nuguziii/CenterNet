@@ -10,7 +10,7 @@ import math
 from utils.image import get_affine_transform, affine_transform
 from utils.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
 from utils.image import draw_dense_reg
-import datasets.dataset.pano as pano
+import datasets.pano as pano
 
 class PANO(data.Dataset):
     num_classes = 2
