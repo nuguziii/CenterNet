@@ -5,12 +5,7 @@ from __future__ import print_function
 import _init_paths
 
 import os
-import json
-import cv2
-import numpy as np
-import time
 from progress.bar import Bar
-import torch
 
 from external.nms import soft_nms
 from opts import opts
@@ -28,14 +23,14 @@ def test(opt):
   Logger(opt)
   Detector = CtdetDetector
   
-  split = 'val' if not opt.trainval else 'test'
+  split = 'test'
   dataset = Dataset(opt, split)
   detector = Detector(opt)
 
   results = {}
   num_iters = len(dataset)
   bar = Bar('{}'.format(opt.exp_id), max=num_iters)
-  time_stats = ['tot', 'load', 'pre', 'net', 'dec', 'post', 'merge']
+  time_stats = ['tot', 'load', 'pre', 'net', 'dec', 'post', 'merge', 'mAP']
   avg_time_stats = {t: AverageMeter() for t in time_stats}
   for ind in range(num_iters):
     img_id = dataset.images[ind]

@@ -26,15 +26,15 @@ class PANO(data.Dataset):
         self.annot_path = os.path.join(self.data_dir, '{}'.format(split))
 
         self.max_objs = 32
-        self.class_name = ['teeth', 'no teeth']
-        self._valid_ids = [1, 2]
+        self.class_name = ['teeth']
+        self._valid_ids = [1]
         self.cat_ids = {v: i for i, v in enumerate(self._valid_ids)}
 
         self.split = split
         self.opt = opt
 
         print('==> initializing pano {} data.'.format(split))
-        self.pano = pano.PANODataset(self.annot_path)
+        self.pano = pano.PANODataset(self.annot_path, opt, split)
         self.images = self.pano.getImgIds()
         self.num_samples = len(self.images)
 
@@ -69,6 +69,7 @@ class PANO(data.Dataset):
         trans_output = get_affine_transform(c, s, 0, [output_w, output_h])
 
         hm = np.zeros((num_classes, output_h, output_w), dtype=np.float32)
+        chm = np.zeros((num_classes, output_h, output_w), dtype=np.float32)
         wh = np.zeros((self.max_objs, 2), dtype=np.float32)
         dense_wh = np.zeros((2, output_h, output_w), dtype=np.float32)
         reg = np.zeros((self.max_objs, 2), dtype=np.float32)
@@ -84,12 +85,18 @@ class PANO(data.Dataset):
         for k in range(num_objs):
             ann = anns[k]
             bbox = ann["bbox"]
+            center = ann["center"]
             cls_id = int(self.cat_ids[ann['category_id']])
 
             bbox[:2] = affine_transform(bbox[:2], trans_output)
             bbox[2:] = affine_transform(bbox[2:], trans_output)
             bbox[[0, 2]] = np.clip(bbox[[0, 2]], 0, output_w - 1)
             bbox[[1, 3]] = np.clip(bbox[[1, 3]], 0, output_h - 1)
+
+            center = affine_transform(center, trans_output)
+            center[[0]] = np.clip(center[[0]], 0, output_w - 1)
+            center[[1]] = np.clip(center[[1]], 0, output_h - 1)
+
             h, w = bbox[3] - bbox[1], bbox[2] - bbox[0]
             if h > 0 and w > 0:
                 radius = gaussian_radius((math.ceil(h), math.ceil(w)))
@@ -99,6 +106,7 @@ class PANO(data.Dataset):
                     [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2], dtype=np.float32)
                 ct_int = ct.astype(np.int32)
                 draw_gaussian(hm[cls_id], ct_int, radius)
+                draw_gaussian(chm[cls_id], center, radius)
                 wh[k] = 1. * w, 1. * h
                 ind[k] = ct_int[1] * output_w + ct_int[0]
                 reg[k] = ct - ct_int
@@ -110,7 +118,7 @@ class PANO(data.Dataset):
                 gt_det.append([ct[0] - w / 2, ct[1] - h / 2,
                                ct[0] + w / 2, ct[1] + h / 2, 1, cls_id])
 
-        ret = {'input': inp, 'hm': hm, 'reg_mask': reg_mask, 'ind': ind, 'wh': wh}
+        ret = {'input': inp, 'hm': hm, 'reg_mask': reg_mask, 'ind': ind, 'wh': wh, 'chm':chm}
         if self.opt.dense_wh:
             hm_a = hm.max(axis=0, keepdims=True)
             dense_wh_mask = np.concatenate([hm_a, hm_a], axis=0)

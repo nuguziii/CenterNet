@@ -38,14 +38,16 @@ class CtdetLoss(torch.nn.Module):
 
     def forward(self, outputs, batch):
         opt = self.opt
-        hm_loss, wh_loss, off_loss = 0, 0, 0
+        hm_loss, wh_loss, off_loss, chm_loss = 0, 0, 0, 0
         for s in range(opt.num_stacks):
             output = outputs[s]
             if not opt.mse_loss:
                 output['hm'] = _sigmoid(output['hm'])
+                output['chm'] = _sigmoid(output['chm'])
 
             if opt.eval_oracle_hm:
                 output['hm'] = batch['hm']
+                output['chm'] = batch['chm']
             if opt.eval_oracle_wh:
                 output['wh'] = torch.from_numpy(gen_oracle_map(
                     batch['wh'].detach().cpu().numpy(),
@@ -58,6 +60,7 @@ class CtdetLoss(torch.nn.Module):
                     output['reg'].shape[3], output['reg'].shape[2])).to(opt.device)
 
             hm_loss += self.crit(output['hm'], batch['hm']) / opt.num_stacks
+            chm_loss += self.crit(output['chm'], batch['chm']) / opt.num_stacks
             if opt.wh_weight > 0:
                 if opt.dense_wh:
                     mask_weight = batch['dense_wh_mask'].sum() + 1e-4
@@ -78,10 +81,10 @@ class CtdetLoss(torch.nn.Module):
                 off_loss += self.crit_reg(output['reg'], batch['reg_mask'],
                                           batch['ind'], batch['reg']) / opt.num_stacks
 
-        loss = opt.hm_weight * hm_loss + opt.wh_weight * wh_loss + \
+        loss = opt.hm_weight * (hm_loss+chm_loss) + opt.wh_weight * wh_loss + \
                opt.off_weight * off_loss
         loss_stats = {'loss': loss, 'hm_loss': hm_loss,
-                      'wh_loss': wh_loss, 'off_loss': off_loss}
+                      'wh_loss': wh_loss, 'off_loss': off_loss, 'chm_loss':chm_loss}
         return loss, loss_stats
 
 
@@ -93,7 +96,7 @@ class CtdetTrainer(object):
         self.model_with_loss = ModelWithLoss(model, self.loss)
 
     def _get_losses(self, opt):
-        loss_states = ['loss', 'hm_loss', 'wh_loss', 'off_loss']
+        loss_states = ['loss', 'hm_loss', 'wh_loss', 'off_loss', 'chm_loss']
         loss = CtdetLoss(opt)
         return loss_states, loss
 

@@ -100,7 +100,7 @@ def _topk_channel(scores, K=40):
 
       return topk_scores, topk_inds, topk_ys, topk_xs
 
-def _topk(scores, K=40):
+def _topk(scores, K=32):
     batch, cat, height, width = scores.size()
       
     topk_scores, topk_inds = torch.topk(scores.view(batch, cat, -1), K)
@@ -461,19 +461,26 @@ def ddd_decode(heat, rot, depth, dim, wh=None, reg=None, K=40):
       
     return detections
 
-def ctdet_decode(heat, wh, reg=None, cat_spec_wh=False, K=100):
+def ctdet_decode(heat, chm, wh, reg=None, cat_spec_wh=False, K=32):
     batch, cat, height, width = heat.size()
 
     # heat = torch.sigmoid(heat)
     # perform nms on heatmaps
     heat = _nms(heat)
-      
+    chm = _nms(chm)
+
+    scoresc, indsc, clsesc, ysc, xsc = _topk(chm, K=K)
     scores, inds, clses, ys, xs = _topk(heat, K=K)
     if reg is not None:
-      reg = _transpose_and_gather_feat(reg, inds)
+      reg1 = _transpose_and_gather_feat(reg, inds)
+      reg1 = reg1.view(batch, K, 2)
+      xs = xs.view(batch, K, 1) + reg1[:, :, 0:1]
+      ys = ys.view(batch, K, 1) + reg1[:, :, 1:2]
+
+      reg = _transpose_and_gather_feat(reg, indsc)
       reg = reg.view(batch, K, 2)
-      xs = xs.view(batch, K, 1) + reg[:, :, 0:1]
-      ys = ys.view(batch, K, 1) + reg[:, :, 1:2]
+      xsc = xsc.view(batch, K, 1) + reg[:, :, 0:1]
+      ysc = ysc.view(batch, K, 1) + reg[:, :, 1:2]
     else:
       xs = xs.view(batch, K, 1) + 0.5
       ys = ys.view(batch, K, 1) + 0.5
@@ -485,14 +492,18 @@ def ctdet_decode(heat, wh, reg=None, cat_spec_wh=False, K=100):
     else:
       wh = wh.view(batch, K, 2)
     clses  = clses.view(batch, K, 1).float()
+    clsesc = clsesc.view(batch, K, 1).float()
     scores = scores.view(batch, K, 1)
+    scoresc = scoresc.view(batch, K, 1)
     bboxes = torch.cat([xs - wh[..., 0:1] / 2, 
                         ys - wh[..., 1:2] / 2,
                         xs + wh[..., 0:1] / 2, 
                         ys + wh[..., 1:2] / 2], dim=2)
+    centers = torch.cat([xsc, ysc, xsc, ysc], dim=2)
+    centers = torch.cat([centers, scoresc, clsesc], dim=2)
     detections = torch.cat([bboxes, scores, clses], dim=2)
       
-    return detections
+    return detections, centers
 
 def multi_pose_decode(
     heat, wh, kps, reg=None, hm_hp=None, hp_offset=None, K=100):

@@ -19,6 +19,7 @@ import torch
 from models.model import create_model, load_model
 from utils.image import get_affine_transform
 from utils.debugger import Debugger
+from detectors.metric import mAP
 
 
 class CtdetDetector(object):
@@ -40,24 +41,29 @@ class CtdetDetector(object):
         self.opt = opt
         self.pause = True
 
+        self.img_id = 0
+        self.iou_level = opt.iou
+
     def process(self, images, return_time=False):
         with torch.no_grad():
             output = self.model(images)[-1]
             hm = output['hm'].sigmoid_()
+            chm = output['chm'].sigmoid_()
             wh = output['wh']
             reg = output['reg'] if self.opt.reg_offset else None
             if self.opt.flip_test:
                 hm = (hm[0:1] + flip_tensor(hm[1:2])) / 2
+                chm = (chm[0:1] + flip_tensor(chm[1:2])) / 2
                 wh = (wh[0:1] + flip_tensor(wh[1:2])) / 2
                 reg = reg[0:1] if reg is not None else None
             torch.cuda.synchronize()
             forward_time = time.time()
-            dets = ctdet_decode(hm, wh, reg=reg, cat_spec_wh=self.opt.cat_spec_wh, K=self.opt.K)
+            dets, centers = ctdet_decode(hm, chm, wh, reg=reg, cat_spec_wh=self.opt.cat_spec_wh, K=self.opt.K)
 
         if return_time:
-            return output, dets, forward_time
+            return output, dets, centers, forward_time
         else:
-            return output, dets
+            return output, dets, centers
 
     def post_process(self, dets, meta, scale=1):
         dets = dets.detach().cpu().numpy()
@@ -102,14 +108,35 @@ class CtdetDetector(object):
                                            detection[i, k, 4],
                                            img_id='out_pred_{:.1f}'.format(scale))
 
-    def show_results(self, debugger, original_image, results):
+    def show_results(self, debugger, original_image, results_b, results_c):
         debugger.add_img(original_image, img_id='ctdet')
         for j in range(1, self.num_classes + 1):
-            for bbox in results[j]:
+            for bbox in results_b[j]:
                 if bbox[4] > self.opt.vis_thresh:
-                    bbox[:4] = self.dataset.pano.getOriginalCoord(original_image, bbox[:4])
+                    bbox[:4], _ = self.dataset.pano.getOriginalCoord(original_image, bbox[:4], bbox[:2])
                     debugger.add_coco_bbox(bbox[:4], j - 1, bbox[4], img_id='ctdet')
+            for center in results_c[j]:
+                if center[4] > self.opt.vis_thresh:
+                    _, center[:2] = self.dataset.pano.getOriginalCoord(original_image, center[:4], center[:2])
+                    debugger.add_center_point(center[:2], img_id='ctdet')
         debugger.show_all_imgs(pause=self.pause)
+
+    def save_results(self, debugger, original_image, results_b, results_c):
+        debugger.add_img(original_image, img_id=self.img_id)
+        for j in range(1, self.num_classes + 1):
+            for bbox in results_b[j]:
+                if bbox[4] > self.opt.vis_thresh:
+                    bbox[:4], _ = self.dataset.pano.getOriginalCoord(original_image, bbox[:4], bbox[:2])
+                    debugger.add_coco_bbox(bbox[:4], j - 1, bbox[4], img_id=self.img_id)
+            for center in results_c[j]:
+                if center[4] > self.opt.vis_thresh:
+                    _, center[:2] = self.dataset.pano.getOriginalCoord(original_image, center[:4], center[:2])
+                    debugger.add_center_point(center[:2], img_id=self.img_id)
+        debugger.save_img(imgId=self.img_id, path='../exp/results/')
+        self.img_id += 1
+
+    def get_mAP(self, ap, preds, gts):
+        return ap.getAP(gts, preds)
 
     def pre_process(self, image, scale, meta=None):
         height, width = image.shape[0:2]
@@ -145,6 +172,7 @@ class CtdetDetector(object):
         merge_time, tot_time = 0, 0
         debugger = Debugger(dataset=self.opt.dataset, ipynb=(self.opt.debug == 3),
                             theme=self.opt.debugger_theme)
+        ap = mAP(self.iou_level, self.num_classes)
         start_time = time.time()
 
         self.dataset = dataset
@@ -155,6 +183,7 @@ class CtdetDetector(object):
         load_time += (loaded_time - start_time)
 
         detections = []
+        centers = []
         for scale in self.scales:
             scale_start_time = time.time()
 
@@ -165,32 +194,37 @@ class CtdetDetector(object):
             pre_process_time = time.time()
             pre_time += pre_process_time - scale_start_time
 
-            output, dets, forward_time = self.process(images, return_time=True)
+            output, dets, cents, forward_time = self.process(images, return_time=True)
 
             torch.cuda.synchronize()
             net_time += forward_time - pre_process_time
             decode_time = time.time()
             dec_time += decode_time - forward_time
 
-            if self.opt.debug >= 2:
-                self.debug(debugger, images, dets, output, scale)
-
             dets = self.post_process(dets, meta, scale)
+            cents = self.post_process(cents, meta, scale)
             torch.cuda.synchronize()
             post_process_time = time.time()
             post_time += post_process_time - decode_time
 
             detections.append(dets)
+            centers.append(cents)
 
-        results = self.merge_outputs(detections)
+        results_b = self.merge_outputs(detections)
+        results_c = self.merge_outputs(centers)
         torch.cuda.synchronize()
         end_time = time.time()
         merge_time += end_time - post_process_time
         tot_time += end_time - start_time
 
-        if self.opt.debug >= 1:
-            self.show_results(debugger, original_image, results)
+        ap_value = ap.getAP(anns, results_b)
 
-        return {'results': results, 'tot': tot_time, 'load': load_time,
+        if self.opt.debug >= 2:
+            self.show_results(debugger, original_image, results_b, results_c)
+
+        if self.opt.debug >= 1:
+            self.save_results(debugger, original_image, results_b, results_c)
+
+        return {'results': results_b, 'tot': tot_time, 'load': load_time,
                 'pre': pre_time, 'net': net_time, 'dec': dec_time,
-                'post': post_time, 'merge': merge_time}
+                'post': post_time, 'merge': merge_time, 'mAP': ap_value}
